@@ -1,11 +1,8 @@
-# Data Analysis for Thesis
- 利用Python实现硕士毕业论文中所有的数据分析及可视化
-
- > ###### Introduction / 引言
+> ###### Introduction / 引言
 >
 > 大学期间用来打发无聊时间学的Python没想到竟然在写毕业论文的时候用处这么大，整个硕士论文所做研究，从前期的数据整理、数据分析，到最后的数据可视化我基本上都使用Python来完成，这篇博客就来分享下我毕业论文课题中所做数据分析相关的Python代码。
 >
-> 本博文所有相关的代码都上传在GitHub仓库：[Data-Analysis-for-Thesis](https://github.com/Man-Yacan/Data-Analysis-for-Thesis)，如果帮到你了，记得给我来个Star☺️。
+> 本博文所有相关的代码都上传在GitHub仓库：[Data-Analysis-for-Thesis](https://github.com/Man-Yacan/Data-Analysis-for-Thesis)，如果帮到你了，记得给我来个Star☺️，也可以顺便去参观下我的个人博客[亚灿网志](https://blog.manyacan.com/)。
 
 ## Python环境配置
 
@@ -329,18 +326,275 @@ def make_fit_equ_str(paras):
 
 ### QPCR数据处理
 
+上一步的操作已经制作出来的功能基因的标准曲线，接下来就是把仪器测得的CT值（自变量）转化为丰度值（因变量），就是带进拟合的标准曲线计算下就OK了。
 
+具体绘图代码直接看GitHub代码即可，没有什么难度。
+
+![](https://image.manyacan.com/202303102103212.png-wm04)
 
 ### 三维荧光数据可视化
 
+#### 读取数据表
+
+使用日立F-7000荧光光谱仪对沉积物中溶解性有机质（Dissolved Organic Matter, DOM）结构特征和组成成分进行表征。仪器得到的数据是`.txt`格式，且有用的数据表是从`Data Points`这一行后面开始的。
+
+![得到的txt文件](https://image.manyacan.com/202303102114479.png-wm04)
+
+所以说，我们要先读取`.txt`文件，循环读取每一行，直到读取到`Data Points`这一行，说明已经到数据表了。
+
+```python
+def get_skip_rows(path):
+    """
+    读取txt文件，并在文件中查找含有'Data Points'的行，数据矩阵就在这一行的下面
+    :param path: 文件路径
+    :return: 数据矩阵开始的行号
+    """
+    f = open(path)
+    for index, line in enumerate(f.readlines()):
+        if 'Data Points' in line:
+            return index + 1
+```
+
+这个函数的作用就是输入`.txt`文件的路径，然后会返回需要的数据表是在第几行开始的。
+
+然后使用`pd.read_table()`方法读取`.txt`，并通过设置`skiprows`的值，来跳过前面无用的数据。例如利用`get_skip_rows()`函数获取到`.txt`文件中数据表从第156行开始：
+
+```python
+df = pd.read_table(search_info['Path'], skiprows=156, index_col=0)
+```
+
+这样的话就可以完美跳过`.txt`文件前面无用的数据，直接读取所需的数据表。
+
+#### 消除瑞利散射
+
+![瑞利散射消除前后对比](https://image.manyacan.com/202303102127862.png-wm04)
+
+瑞利散射的消除其实很简单，观察数据表就可以看出来，瑞利散射其实就是不该出现在某个区间内数据峰，我们只需要慢慢根据$E_x$与$E_m$的设置范围来进行消除就行了：
+
+```python
+for i in range(modify_df.shape[0]):  # 遍历ex
+    for j in range(modify_df.shape[1]):  # 遍历em
+        ex = 200 + i * 5  # ex范围为200~450，间隔为5
+        em = 280 + j * 5  # em范围为280~550，间隔为5
+        if ex + 455 > em > ex + 145:
+            modify_df.iloc[i, j] = 0  # 不能使用0, 因为0是有意义的数据
+```
+
+#### 光谱图的分区
+
+直接使用：
+
+```python
+cur_ax.axvline(250, color='white', linestyle='--', linewidth=5)  # 垂直线
+cur_ax.axhline(330, color='white', linestyle='--', linewidth=5)  # 水平线
+```
+
+就可以在图上画线了。
+
+![](https://image.manyacan.com/202303102134952.png-wm04)
+
+需要讲解的其实就这几个部分，别的直接看代码就行了。
+
 ### 粒径数据可视化
 
+沉积物粒径百分比分布使用Malvern Mastersizer 2000型激光粒度仪进行分析。得到数据后需要手动整理为`.csv`格式。
+
+![数据格式](https://image.manyacan.com/202303102140733.png-wm04)
+
+首先来讲解下数据格式，每一列代表一个样本，每一行代表对应粒径所占百分比。例如图中红方框所示就是代表`D-N4`样本点对应粒径为`0.955 μm`颗粒占比为`0.03%`。
+
+#### 清除空行
+
+上图中可以看出，数据有很多空行，那么首先第一步就是清除掉这些空行：
+
+```python
+df.dropna(how='all', inplace=True)  # 删除缺失值（行全为空）
+df.dropna(how='all', axis=1, inplace=True)  # 删除缺失值（列全为空）
+```
+
+绘图还是直接看代码吧。
+
+![](https://image.manyacan.com/202303102146411.png-wm04)
+
 ### 常规指标数据可视化
+
+```python
+# 子图摆放设置
+ROW_NUM = 2
+COL_NUM = int(len(df.columns) / ROW_NUM)
+
+# 绘图设置
+sns.set(
+    style='darkgrid',
+    font='Times New Roman',
+    font_scale=2
+)
+
+
+# 布局设置
+plt.figure(dpi=DPI)
+fig, ax_arr = plt.subplots(ROW_NUM, COL_NUM, sharex='col', figsize=(20, 10))
+fig.subplots_adjust(hspace=0.2, wspace=0.2)
+
+# 循环绘图
+for index, s in enumerate(df.iteritems()):
+    cur_df = pd.concat([s[1], affix_info], axis=1)
+    # 计算行列数
+    row_num = index // COL_NUM
+    col_num = index - row_num * COL_NUM
+    cur_ax = ax_arr[row_num][col_num]
+    cur_plot = sns.boxplot(  # 绘图
+        x="Period",  # X轴
+        y=s[0],  # Y轴
+        hue="River",  # 颜色分类
+        data=cur_df,  # 数据表
+        dodge=True,  
+        palette="Set1",  # 配色
+        ax=cur_ax  # 绘图坐标轴
+    )
+    # 子图图名、x轴、y轴、图例
+    cur_ax.tick_params(axis='x', rotation=90)
+    if len(df.columns) - (index + 1) >= COL_NUM:
+        cur_plot.set_xlabel(None)
+    cur_plot.set_title(f'({CHAR[index]}) ${s[0][2:]}$ ({unit[s[0]]})',fontproperties="Times New Roman", fontsize=20)
+    cur_ax.get_legend().remove()  # 移除子图图例
+    cur_plot.set_ylabel(None)
+
+# 子图的图例相同，获取最后一个子图的图例
+lines, labels = fig.axes[-1].get_legend_handles_labels()
+fig.legend(lines, labels, ncol=3, loc='lower center',
+           bbox_to_anchor=(0.5, -0.16))
+
+# 保存图片
+# fig.savefig(EXPORT_PATH + '沉积物环境因子时空变化' + IMG_TYPE, dpi=DPI, bbox_inches='tight' )
+```
+
+![](https://image.manyacan.com/202303102321718.png-wm04)
 
 ## 数据分析
 
 ### 主成分分析
 
+主成分分析（Prin­ci­pal Com­po­nent Analy­sis, PCA）的具体逻辑及Python实现方法可以看：[PCA主成分析原理、理解和代码实现](https://blog.manyacan.com/archives/1946/)。
+
 ### 聚类分析
 
-### Mantel Test 分析
+#### K-means聚类
+
+```python
+class KMeans(object):
+    """
+    KMeans算法类
+    """
+
+    def __init__(self, df, K, iterate_num=50):
+        """
+        类或对象的初始化
+        :param df: 输入矩阵 m×n
+        :param K: 聚类蔟数
+        :param iterate_num: 迭代循环次数，默认为50次
+        """
+        self.df = df
+        self.K = K
+        self.iterate_num = iterate_num
+        self.centers = None  # 存放簇中心点，第一次随机选择，之后通过迭代不断更新
+
+    def run(self):
+        """
+        类、对象入口函数
+        """
+        hues.info(f'{self.__class__.__name__}已运行...')
+        # 1、随机选择K个簇中心点(存入self.centers中)
+        self.df['near_center_id'] = np.nan  # 在df中添加一列作为分簇的依据
+        self.make_random_center()
+        # 2、点归属——求每个点到暂定簇中心的最近距离
+        self.calc_distance()
+        # 3、更根据分类，更新簇中心
+        self.update_centers()
+        # 4、迭代循环
+        self.do_iteration()
+        # 5、绘制聚类结果（仅针对二维数据）
+        self.plot_scatter_2D()
+
+    def make_random_center(self):
+        """
+        从df中随机选择K个点作为K个簇中心点
+        """
+        random_ids = np.random.permutation(self.df.shape[0])  # 获取传入的DataFrame有多少行数据，对DataFrame行值进行洗牌打乱
+        self.centers = self.df.iloc[:, :-1].loc[random_ids[:self.K], :]  # 从df中随机获取K行数据作为随机开始点
+
+    def calc_distance(self):
+        """
+        计算每个点到簇中心的距离
+        df: m*n centers: K*n  dis_df 各个点到各个暂定簇中心的距离 m*K
+        """
+        dis_df = np.zeros((self.df.shape[0], self.K))  # 定义一个用于存放每个点到每个簇中心距离的df
+        # 求出每个点到每个暂定簇中心的欧氏距离
+        for i in range(len(self.df)):
+            for j in range(self.K):
+                dis_df[i, j] = np.sqrt(sum((self.df.iloc[i, :-1] - self.centers.iloc[j]) ** 2))
+
+        # 对比每个点到每个簇中心的距离，将距离某点距离最小的簇中心的ID记录，作为最后分分类的依据
+        self.df['near_center_id'] = np.argmin(dis_df, axis=1)
+
+    def update_centers(self):
+        """
+        在计算距离之后，需要根据新的near_center_id分类来计算新的K个簇中心
+        """
+        for i in range(self.K):  # 循环更新K个簇中心
+            self.centers.iloc[i, :] = self.df[self.df['near_center_id'] == i].iloc[:, :-1].mean()
+
+    def do_iteration(self):
+        for _ in range(self.iterate_num):  # 进行迭代循环
+            self.calc_distance()  # 计算距离
+            # 在每次更新centers位置前，对centers深拷贝，如果更新后没变化，说明迭代完成
+            old_centers = self.centers.copy(deep=True)
+            # print('Old Centers:')  # DEBUG
+            # print(old_centers)
+            self.update_centers()  # 更新簇中心
+            # print('New Centers:')
+            # print(self.centers)
+            # print("=" * 20)
+            if old_centers.equals(self.centers):
+                hues.success(f'结束运行, 共进行了【{_}】次迭代.')
+                break
+
+    def plot_scatter_2D(self):
+        """
+        如果传入的df（m×n）是二维数据（n=2），可以直接调用这个函数来实现画图，如果数据维度大于2（n＞2），则需要进行降维操作后绘制图形
+        绘制二维平面图
+        """
+        get_ipython().run_line_magic('matplotlib', 'notebook')
+        sns.scatterplot(x=self.df.iloc[:, 0], y=self.df.iloc[:, 1], hue=self.df['near_center_id'])
+        sns.scatterplot(x=self.centers.iloc[:, 0], y=self.centers.iloc[:, 1], marker="*", s=500)
+```
+
+#### 层次聚类
+
+层次聚类（Hierarchical Clustering）是聚类算法的一种，通过计算不同类别数据点间的相似度来创建一棵有层次的嵌套聚类树。在聚类树中，不同类别的原始数据点是树的最低层，树的项层是一个集类的根节点。基于层次的聚类算法可以是凝聚的（Agglomerative）或者分裂的（Divisive），取决于层次的划分是“自底向上”还是“自项向下”。
+
+```python
+# 引包
+import seaborn as sns
+from scipy.cluster.hierarchy import linkage, dendrogram, fcluster  # 计算距离、绘图、得到标签结果
+
+# 加载数据集
+iris_0 = sns.load_dataset('iris')
+iris = iris_0.copy()
+
+# 数据集本身是有标签的，弹出species列，假装没有标签
+species = list(iris.pop('species'))  
+
+# 进行层次聚类
+X = iris.values  # 提取数据集中的元素矩阵，格式为numpy.ndarray
+mergings = linkage(X, method='average')  # method参数：single: 两个组合点中的最近点, complete：两个组合点中的最远点，average：两个组合点的平均值的距离
+
+# 树状图展示
+fig = plt.figure(figsize=(20, 8))
+dendrogram(mergings, labels=species, leaf_rotation=90, leaf_font_size=6)
+plt.show()
+```
+
+### Mantel Test
+
+见博文：[Mantel Test算法原理讲解、代码实现、绘图可视化](https://blog.manyacan.com/archives/2028/)。
